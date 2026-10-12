@@ -1,6 +1,7 @@
 import argparse
 import os
 import sys
+import json
 
 from openai import OpenAI
 
@@ -48,8 +49,18 @@ def main():
     # You can use print statements as follows for debugging, they'll be visible when running tests.
     print("Logs from your program will appear here!", file=sys.stderr)
 
-    print(chat.choices[0].message.content)
+    if chat.choices[0].message.tool_calls:
+        tool = chat.choices[0].message.tool_calls[0]
 
+        if tool.type == "function":
+            if tool.function.name == "Read":
+                arguments  = json.loads(tool.function.arguments)
+
+                with open(arguments["file_path"], "r", encoding="utf-8") as file:
+                    content = file.read()
+                    print(content)
+    else:
+        print(chat.choices[0].message.content)
 
 if __name__ == "__main__":
     main()
