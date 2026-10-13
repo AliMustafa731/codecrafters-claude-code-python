@@ -7,7 +7,19 @@ from openai import OpenAI
 
 API_KEY = os.getenv("OPENROUTER_API_KEY")
 BASE_URL = os.getenv("OPENROUTER_BASE_URL", default="https://openrouter.ai/api/v1")
-MODEL = os.getenv("AMK_LOCAL_MODEL") if os.getenv("AMK_LOCAL_MODEL") else "anthropic/claude-haiku-4.5";
+MODEL = os.getenv("AMK_LOCAL_MODEL") if os.getenv("AMK_LOCAL_MODEL") else "anthropic/claude-haiku-4.5"
+
+def execute_tool_call(tool):
+    content = None
+
+    if tool.type == "function":
+        if tool.function.name == "Read":
+            arguments  = json.loads(tool.function.arguments)
+
+            with open(arguments["file_path"], "r", encoding="utf-8") as file:
+                content = file.read()
+                print(f"LOG: Successfully read the file [{arguments["file_path"]}]", file=sys.stderr)
+    return content
 
 def main():
     p = argparse.ArgumentParser()
@@ -19,48 +31,55 @@ def main():
 
     client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
 
-    chat = client.chat.completions.create(
-        model=MODEL,
-        messages=[{"role": "user", "content": args.p}],
-        tools=[
-            {
-                "type": "function",
-                "function": {
-                    "name": "Read",
-                    "description": "Read and return the contents of a file",
-                    "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "file_path": {
-                        "type": "string",
-                        "description": "The path to the file to read"
-                        }
-                    },
-                    "required": ["file_path"]
+    messages = [
+        {"role": "user", "content": args.p}
+    ]
+
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "Read",
+                "description": "Read and return the contents of a file",
+                "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                    "type": "string",
+                    "description": "The path to the file to read"
                     }
+                },
+                "required": ["file_path"]
                 }
             }
-        ]
-    )
+        }
+    ]
 
-    if not chat.choices or len(chat.choices) == 0:
-        raise RuntimeError("no choices in response")
+    while True:
+        chat = client.chat.completions.create(
+            model=MODEL,
+            messages=messages,
+            tools=tools
+        )
 
-    # You can use print statements as follows for debugging, they'll be visible when running tests.
-    print("Logs from your program will appear here!", file=sys.stderr)
+        if not chat.choices:
+            raise RuntimeError("no choices in response")
 
-    if chat.choices[0].message.tool_calls:
-        tool = chat.choices[0].message.tool_calls[0]
+        print("LOG: Received message from the model", file=sys.stderr)
 
-        if tool.type == "function":
-            if tool.function.name == "Read":
-                arguments  = json.loads(tool.function.arguments)
+        message = chat.choices[0].message;
+        messages.append(message.model_dump())
 
-                with open(arguments["file_path"], "r", encoding="utf-8") as file:
-                    content = file.read()
-                    print(content)
-    else:
-        print(chat.choices[0].message.content)
+        # execute tools
+        if message.tool_calls:
+            for tool in message.tool_calls:
+                print(f"LOG: Received tool call [{tool.function.name}]", file=sys.stderr)
+                result = execute_tool_call(tool)
+                messages.append({"role": "tool", "content": result, "tool_call_id": tool.id})
+        else:
+            print("LOG: Final result printed", file=sys.stderr)
+            print(message.content)
+            break
 
 if __name__ == "__main__":
     main()
