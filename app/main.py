@@ -10,15 +10,20 @@ BASE_URL = os.getenv("OPENROUTER_BASE_URL", default="https://openrouter.ai/api/v
 MODEL = os.getenv("AMK_LOCAL_MODEL") if os.getenv("AMK_LOCAL_MODEL") else "anthropic/claude-haiku-4.5"
 
 def execute_tool_call(tool):
-    content = None
+    content = ""
 
     if tool.type == "function":
-        if tool.function.name == "Read":
-            arguments  = json.loads(tool.function.arguments)
+        arguments  = json.loads(tool.function.arguments)
 
+        if tool.function.name == "Read":
             with open(arguments["file_path"], "r", encoding="utf-8") as file:
                 content = file.read()
                 print(f"LOG: Successfully read the file [{arguments["file_path"]}]", file=sys.stderr)
+        elif tool.function.name == "Write":
+            with open(arguments["file_path"], "w", encoding="utf-8") as file:
+                file.write(arguments["content"])
+                print(f"LOG: Successfully written content to file [{arguments["file_path"]}]", file=sys.stderr)
+    
     return content
 
 def main():
@@ -50,6 +55,27 @@ def main():
                     }
                 },
                 "required": ["file_path"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "Write",
+                "description": "Write content to a file",
+                "parameters": {
+                "type": "object",
+                "required": ["file_path", "content"],
+                "properties": {
+                    "file_path": {
+                    "type": "string",
+                    "description": "The path of the file to write to"
+                    },
+                    "content": {
+                    "type": "string",
+                    "description": "The content to write to the file"
+                    }
+                }
                 }
             }
         }
