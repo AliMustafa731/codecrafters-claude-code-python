@@ -2,6 +2,7 @@ import argparse
 import os
 import sys
 import json
+import subprocess
 
 from openai import OpenAI
 
@@ -19,11 +20,30 @@ def execute_tool_call(tool):
             with open(arguments["file_path"], "r", encoding="utf-8") as file:
                 content = file.read()
                 print(f"LOG: Successfully read the file [{arguments["file_path"]}]", file=sys.stderr)
+        
         elif tool.function.name == "Write":
             with open(arguments["file_path"], "w", encoding="utf-8") as file:
                 file.write(arguments["content"])
                 print(f"LOG: Successfully written content to file [{arguments["file_path"]}]", file=sys.stderr)
-    
+        
+        elif tool.function.name == "Bash":
+            print(f"[Executing System Command]: {arguments["command"]}")
+            try:
+                result = subprocess.run(
+                    arguments["command"],
+                    shell=True,
+                    text=True,
+                    capture_output=True
+                )
+                if result.returncode == 0:
+                    content = result.stdout if result.stdout else "Command executed successfully (no output)."
+                else:
+                    content = f"Error (Exit Code {result.returncode}): {result.stderr}"
+            except Exception as e:
+                return f"Execution failed: {str(e)}"
+            
+            print(f"LOG: Executed the shell command [{arguments["command"]}]", file=sys.stderr)
+
     return content
 
 def main():
@@ -47,14 +67,14 @@ def main():
                 "name": "Read",
                 "description": "Read and return the contents of a file",
                 "parameters": {
-                "type": "object",
-                "properties": {
-                    "file_path": {
-                    "type": "string",
-                    "description": "The path to the file to read"
-                    }
-                },
-                "required": ["file_path"]
+                    "type": "object",
+                    "properties": {
+                        "file_path": {
+                            "type": "string",
+                            "description": "The path to the file to read"
+                        }
+                    },
+                    "required": ["file_path"]
                 }
             }
         },
@@ -64,18 +84,35 @@ def main():
                 "name": "Write",
                 "description": "Write content to a file",
                 "parameters": {
-                "type": "object",
-                "required": ["file_path", "content"],
-                "properties": {
-                    "file_path": {
-                    "type": "string",
-                    "description": "The path of the file to write to"
-                    },
-                    "content": {
-                    "type": "string",
-                    "description": "The content to write to the file"
+                    "type": "object",
+                    "required": ["file_path", "content"],
+                    "properties": {
+                        "file_path": {
+                            "type": "string",
+                            "description": "The path of the file to write to"
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "The content to write to the file"
+                        }
                     }
                 }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "Bash",
+                "description": "Execute a shell command",
+                "parameters": {
+                    "type": "object",
+                    "required": ["command"],
+                    "properties": {
+                        "command": {
+                            "type": "string",
+                            "description": "The command to execute"
+                        }
+                    }
                 }
             }
         }
