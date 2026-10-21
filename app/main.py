@@ -5,10 +5,30 @@ import json
 import subprocess
 
 from openai import OpenAI
+import frontmatter
 
 API_KEY = os.getenv("OPENROUTER_API_KEY")
 BASE_URL = os.getenv("OPENROUTER_BASE_URL", default="https://openrouter.ai/api/v1")
 MODEL = os.getenv("AMK_LOCAL_MODEL") if os.getenv("AMK_LOCAL_MODEL") else "anthropic/claude-haiku-4.5"
+
+def parse_skills():
+    skills = []
+
+    try:
+        skills_path = os.path.join(".", ".claude", "skills")
+        entries = os.scandir(skills_path)
+
+        for entry in entries:
+            if entry.is_dir():
+                # initialize empty skill body
+                skill_name = entry.name
+                skill_file_path = os.path.join(skills_path, skill_name, "SKILL.md")
+                post = frontmatter.load(skill_file_path)
+                skills.append({"name": skill_name, "description": post["description"], "body": post.content})
+    except FileNotFoundError:
+        print(f"Error: The directory '{skills_path}' could not be found.", file=sys.stderr)
+
+    return skills
 
 def execute_tool_call(tool):
     content = ""
@@ -24,6 +44,7 @@ def execute_tool_call(tool):
         elif tool.function.name == "Write":
             with open(arguments["file_path"], "w", encoding="utf-8") as file:
                 file.write(arguments["content"])
+                content = f"Successfully written content to file [{arguments["file_path"]}"
                 print(f"LOG: Successfully written content to file [{arguments["file_path"]}]", file=sys.stderr)
         
         elif tool.function.name == "Bash":
@@ -56,8 +77,18 @@ def main():
 
     client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
 
+    skills = parse_skills()
+
+    system_prompt = "You have access to the following skills:\n\n"
+
+    for skill in skills:
+        system_prompt += f"- {skill["name"]}: {skill["description"]}\n"
+
+    user_prompt = args.p
+
     messages = [
-        {"role": "user", "content": args.p}
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt}
     ]
 
     tools = [
