@@ -3,6 +3,7 @@ import os
 import sys
 import json
 import subprocess
+import re
 
 from openai import OpenAI
 import frontmatter
@@ -11,11 +12,22 @@ API_KEY = os.getenv("OPENROUTER_API_KEY")
 BASE_URL = os.getenv("OPENROUTER_BASE_URL", default="https://openrouter.ai/api/v1")
 MODEL = os.getenv("AMK_LOCAL_MODEL") if os.getenv("AMK_LOCAL_MODEL") else "anthropic/claude-haiku-4.5"
 
-def parse_skills():
-    skills = []
+def parse_and_inject_skills(prompt, available_skills):
+    
+    def replace(match):
+        skill_name = match.group(1)[1:]
+
+        if skill_name in available_skills:
+            return available_skills[skill_name]["body"]
+
+        return match.group(0)
+
+    return re.sub(r"(?<!\S)(/\w+)", replace, prompt)
+
+def load_skills(skills_path):
+    skills = {}
 
     try:
-        skills_path = os.path.join(".", ".claude", "skills")
         entries = os.scandir(skills_path)
 
         for entry in entries:
@@ -24,7 +36,11 @@ def parse_skills():
                 skill_name = entry.name
                 skill_file_path = os.path.join(skills_path, skill_name, "SKILL.md")
                 post = frontmatter.load(skill_file_path)
-                skills.append({"name": skill_name, "description": post["description"], "body": post.content})
+                skills[skill_name] = {
+                    "name": skill_name,
+                    "description": post["description"],
+                    "body": post.content
+                }
     except FileNotFoundError:
         print(f"Error: The directory '{skills_path}' could not be found.", file=sys.stderr)
 
@@ -68,6 +84,7 @@ def execute_tool_call(tool):
     return content
 
 def main():
+    # parse arguments
     p = argparse.ArgumentParser()
     p.add_argument("-p", required=True)
     args = p.parse_args()
@@ -75,16 +92,18 @@ def main():
     if not API_KEY:
         raise RuntimeError("OPENROUTER_API_KEY is not set")
 
+    # setup openai client
     client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
 
-    skills = parse_skills()
+    # setup system and user prompts
+    skills = load_skills(os.path.join(".", ".claude", "skills"))
 
     system_prompt = "You have access to the following skills:\n\n"
 
-    for skill in skills:
+    for skill in skills.values():
         system_prompt += f"- {skill["name"]}: {skill["description"]}\n"
 
-    user_prompt = args.p
+    user_prompt = parse_and_inject_skills(args.p, skills)
 
     messages = [
         {"role": "system", "content": system_prompt},
