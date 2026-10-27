@@ -13,38 +13,47 @@ BASE_URL = os.getenv("OPENROUTER_BASE_URL", default="https://openrouter.ai/api/v
 MODEL = os.getenv("AMK_LOCAL_MODEL") if os.getenv("AMK_LOCAL_MODEL") else "anthropic/claude-haiku-4.5"
 
 def parse_and_inject_skills(prompt, available_skills):
-    def replace_skill(match):
-        skill_name = match.group(1)[1:]
-        arguments_text = (match.group(2) or "").strip()
-        arguments = arguments_text.split()
+    arguments = prompt.split()
+    skills = []
+    results = []
 
-        # Leave unknown slash commands unchanged.
-        if skill_name not in available_skills:
-            return match.group(0)
+    while arguments:
+        if arguments[0].startswith("/"):
+            if arguments[0][1:] in available_skills:
+                skills.append(arguments.pop(0)[1:])
+        else:
+            break
 
-        skill_body = available_skills[skill_name]["body"]
+    # now, the list "words" contains the arguments passed to the skills
+    # now, we expand the skills bodies
+    if skills:
+        for skill in skills:
+            skill_body = available_skills[skill]["body"]
 
-        def replace_placeholder(placeholder_match):
-            placeholder = placeholder_match.group(1)
+            def replace_placeholder(placeholder_match):
+                placeholder = placeholder_match.group(1)
 
-            if placeholder == "ARGUMENTS":
-                return arguments_text
+                if placeholder == "ARGUMENTS":
+                    return " ".join(arguments)
 
-            if placeholder.startswith("ARGUMENTS["):
-                index = int(placeholder[len("ARGUMENTS["):-1])
-            else:
-                index = int(placeholder)
+                if placeholder.startswith("ARGUMENTS["):
+                    index = int(placeholder[len("ARGUMENTS["):-1])
+                else:
+                    index = int(placeholder)
 
-            return arguments[index] if index < len(arguments) else ""
+                return arguments[index] if index < len(arguments) else ""
 
-        return re.sub(
-            r"\$(ARGUMENTS(?:\[\d+\])?|\d+)",
-            replace_placeholder,
-            skill_body,
-        )
-
-    # Skill arguments are everything after the skill name on that line.
-    return re.sub(r"(?<!\S)(/\w+)(?:[ \t]+([^\n]*))?", replace_skill, prompt)
+            results.append(
+                re.sub(
+                    r"\$(ARGUMENTS(?:\[\d+\])?|\d+)",
+                    replace_placeholder,
+                    skill_body,
+                )
+            )
+        
+        return " ".join(results)
+    else:
+        return prompt
 
 def load_skills(skills_path):
     skills = {}
