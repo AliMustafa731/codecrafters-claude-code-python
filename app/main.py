@@ -13,16 +13,38 @@ BASE_URL = os.getenv("OPENROUTER_BASE_URL", default="https://openrouter.ai/api/v
 MODEL = os.getenv("AMK_LOCAL_MODEL") if os.getenv("AMK_LOCAL_MODEL") else "anthropic/claude-haiku-4.5"
 
 def parse_and_inject_skills(prompt, available_skills):
-    
-    def replace(match):
+    def replace_skill(match):
         skill_name = match.group(1)[1:]
+        arguments_text = (match.group(2) or "").strip()
+        arguments = arguments_text.split()
 
-        if skill_name in available_skills:
-            return available_skills[skill_name]["body"]
+        # Leave unknown slash commands unchanged.
+        if skill_name not in available_skills:
+            return match.group(0)
 
-        return match.group(0)
+        skill_body = available_skills[skill_name]["body"]
 
-    return re.sub(r"(?<!\S)(/\w+)", replace, prompt)
+        def replace_placeholder(placeholder_match):
+            placeholder = placeholder_match.group(1)
+
+            if placeholder == "ARGUMENTS":
+                return arguments_text
+
+            if placeholder.startswith("ARGUMENTS["):
+                index = int(placeholder[len("ARGUMENTS["):-1])
+            else:
+                index = int(placeholder)
+
+            return arguments[index] if index < len(arguments) else ""
+
+        return re.sub(
+            r"\$(ARGUMENTS(?:\[\d+\])?|\d+)",
+            replace_placeholder,
+            skill_body,
+        )
+
+    # Skill arguments are everything after the skill name on that line.
+    return re.sub(r"(?<!\S)(/\w+)(?:[ \t]+([^\n]*))?", replace_skill, prompt)
 
 def load_skills(skills_path):
     skills = {}
