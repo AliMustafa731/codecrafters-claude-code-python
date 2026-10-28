@@ -43,13 +43,9 @@ def parse_and_inject_skills(prompt, available_skills):
 
                 return arguments[index] if index < len(arguments) else ""
 
-            results.append(
-                re.sub(
-                    r"\$(ARGUMENTS(?:\[\d+\])?|\d+)",
-                    replace_placeholder,
-                    skill_body,
-                )
-            )
+            result = f"Any paths below are relative to (.claude/skills/{skill}).\n\n"
+            result += re.sub(r"\$(ARGUMENTS(?:\[\d+\])?|\d+)", replace_placeholder, skill_body)
+            results.append(result)
         
         return " ".join(results)
     else:
@@ -95,7 +91,7 @@ def execute_tool_call(tool):
                 print(f"LOG: Successfully written content to file [{arguments["file_path"]}]", file=sys.stderr)
         
         elif tool.function.name == "Bash":
-            print(f"[Executing System Command]: {arguments["command"]}")
+            print(f"[Executing System Command]: {arguments["command"]}", file=sys.stderr)
             try:
                 result = subprocess.run(
                     arguments["command"],
@@ -213,6 +209,8 @@ def main():
 
         message = chat.choices[0].message;
         messages.append(message.model_dump())
+
+        print("[Assistant]", message.content, file=sys.stderr)
 
         # execute tools
         if message.tool_calls:
