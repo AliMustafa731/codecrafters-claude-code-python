@@ -12,6 +12,30 @@ API_KEY = os.getenv("OPENROUTER_API_KEY")
 BASE_URL = os.getenv("OPENROUTER_BASE_URL", default="https://openrouter.ai/api/v1")
 MODEL = os.getenv("AMK_LOCAL_MODEL") if os.getenv("AMK_LOCAL_MODEL") else "anthropic/claude-haiku-4.5"
 
+def inject_args_into_skill_body(arguments, skill):
+
+    def replace_placeholder(placeholder_match):
+        placeholder = placeholder_match.group(1)
+
+        if placeholder == "ARGUMENTS":
+            return " ".join(arguments)
+
+        if placeholder.startswith("ARGUMENTS["):
+            index = int(placeholder[len("ARGUMENTS["):-1])
+        else:
+            index = int(placeholder)
+
+        return arguments[index] if index < len(arguments) else ""
+
+    result = f"Any paths below are relative to (.claude/skills/{skill["name"]}).\n\n"
+
+    if arguments:
+        result += re.sub(r"\$(ARGUMENTS(?:\[\d+\])?|\d+)", replace_placeholder, skill["body"])
+    else:
+        result += skill["body"]
+
+    return result
+
 def parse_and_inject_skills(prompt, available_skills):
     arguments = prompt.split()
     skills = []
@@ -27,25 +51,9 @@ def parse_and_inject_skills(prompt, available_skills):
     # now, the list "words" contains the arguments passed to the skills
     # now, we expand the skills bodies
     if skills:
-        for skill in skills:
-            skill_body = available_skills[skill]["body"]
-
-            def replace_placeholder(placeholder_match):
-                placeholder = placeholder_match.group(1)
-
-                if placeholder == "ARGUMENTS":
-                    return " ".join(arguments)
-
-                if placeholder.startswith("ARGUMENTS["):
-                    index = int(placeholder[len("ARGUMENTS["):-1])
-                else:
-                    index = int(placeholder)
-
-                return arguments[index] if index < len(arguments) else ""
-
-            result = f"Any paths below are relative to (.claude/skills/{skill}).\n\n"
-            result += re.sub(r"\$(ARGUMENTS(?:\[\d+\])?|\d+)", replace_placeholder, skill_body)
-            results.append(result)
+        for skill_name in skills:
+            skill_body = inject_args_into_skill_body(arguments, available_skills[skill_name])
+            results.append(skill_body)
         
         return " ".join(results)
     else:
@@ -73,7 +81,7 @@ def load_skills(skills_path):
 
     return skills
 
-def execute_tool_call(tool):
+def execute_tool_call(tool, available_skills):
     content = ""
 
     if tool.type == "function":
@@ -107,6 +115,12 @@ def execute_tool_call(tool):
                 return f"Execution failed: {str(e)}"
             
             print(f"LOG: Executed the shell command [{arguments["command"]}]", file=sys.stderr)
+        
+        elif tool.function.name == "Skill":
+            skill_name = arguments.get("name")
+            skill_args = arguments.get("args")
+
+            return inject_args_into_skill_body(skill_args.split() if skill_args else None, available_skills[skill_name])
 
     return content
 
@@ -129,6 +143,8 @@ def main():
 
     for skill in skills.values():
         system_prompt += f"- {skill["name"]}: {skill["description"]}\n"
+
+    system_prompt += "If a skill matches the user's request, call the Skill tool with its name and follow the instructions it returns.\n"
 
     user_prompt = parse_and_inject_skills(args.p, skills)
 
@@ -192,6 +208,21 @@ def main():
                     }
                 }
             }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "Skill",
+                "description": "Load a skill's instructions into the conversation",
+                "parameters": {
+                    "type": "object",
+                    "required": ["name"],
+                    "properties": {
+                        "name": { "type": "string", "description": "The name of the skill to use" },                                                            
+                        "args": { "type": "string", "description": "Optional arguments for the skill" }                                                            
+                    }                                                                 
+                }
+            }
         }
     ]
 
@@ -216,7 +247,7 @@ def main():
         if message.tool_calls:
             for tool in message.tool_calls:
                 print(f"LOG: Received tool call [{tool.function.name}]", file=sys.stderr)
-                result = execute_tool_call(tool)
+                result = execute_tool_call(tool, skills)
                 messages.append({"role": "tool", "content": result, "tool_call_id": tool.id})
         else:
             print("LOG: Final result printed", file=sys.stderr)
