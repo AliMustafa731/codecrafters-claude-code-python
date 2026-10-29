@@ -27,7 +27,9 @@ def inject_args_into_skill_body(arguments, skill):
 
         return arguments[index] if index < len(arguments) else ""
 
-    result = f"Any paths below are relative to (.claude/skills/{skill["name"]}).\n\n"
+    result = f"Any paths below, if found, are relative to (.claude/skills/{skill["name"]}).\n\n"
+
+    skill["body"] += "\n"
 
     if arguments:
         result += re.sub(r"\$(ARGUMENTS(?:\[\d+\])?|\d+)", replace_placeholder, skill["body"])
@@ -48,14 +50,13 @@ def parse_and_inject_skills(prompt, available_skills):
         else:
             break
 
-    # now, the list "words" contains the arguments passed to the skills
-    # now, we expand the skills bodies
+    # Now, we expand the skills bodies
     if skills:
         for skill_name in skills:
             skill_body = inject_args_into_skill_body(arguments, available_skills[skill_name])
             results.append(skill_body)
         
-        return " ".join(results)
+        return "".join(results)
     else:
         return prompt
 
