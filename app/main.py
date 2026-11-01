@@ -27,16 +27,13 @@ def inject_args_into_skill_body(arguments, skill):
 
         return arguments[index] if index < len(arguments) else ""
 
-    result = f"Any paths below, if found, are relative to (.claude/skills/{skill["name"]}).\n\n"
-
-    skill["body"] += "\n"
+    skill_body = skill["body"]
+    skill_name = skill["name"]
 
     if arguments:
-        result += re.sub(r"\$(ARGUMENTS(?:\[\d+\])?|\d+)", replace_placeholder, skill["body"])
-    else:
-        result += skill["body"]
+        skill_body += re.sub(r"\$(ARGUMENTS(?:\[\d+\])?|\d+)", replace_placeholder, skill["body"])
 
-    return result
+    return f"Skill: {skill_name} (located at .claude/skills/{skill_name}).\nPaths in the instructions below are relative to that folder\nHere are the instructions for this skill:\n{skill_body}\n"
 
 def parse_and_inject_skills(prompt, available_skills):
     arguments = prompt.split()
